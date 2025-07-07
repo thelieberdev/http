@@ -1,12 +1,13 @@
 package request
 
 import (
-	"io"
 	"bytes"
-	"unicode"
-	"fmt"
-	"strings"
 	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+	"unicode"
 
 	"github.com/lieberdev/http/internal/headers"
 )
@@ -16,6 +17,7 @@ type State int
 const (
 	Initial State = iota
 	ParsingHeaders
+	ParsingBody
 	Done
 )
 
@@ -23,6 +25,7 @@ type Request struct {
 	RequestLine RequestLine
 	Headers     headers.Headers
 	State       State
+	Body        []byte
 }
 
 type RequestLine struct {
@@ -103,10 +106,25 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 	case ParsingHeaders: 
 		consumed_bytes, done, err := r.Headers.Parse(data)
 		if err != nil { return 0, err }
-		if done { r.State = Done }
+		if done { 
+			r.State = ParsingBody 
+			if r.Headers.Get("Content-Length") == "" { r.State = Done }
+		}
 		return consumed_bytes, nil
+	case ParsingBody:
+		r.Body = append(r.Body, data...)
+		content_length, err := strconv.Atoi(r.Headers.Get("Content-Length"))
+		if err != nil { return 0, err }
+		if len(r.Body) > content_length {
+			fmt.Printf("Body size is not equal to Content-Length: %d != %d\n", len(r.Body), content_length)
+			return 0, fmt.Errorf("Body size is bigger than Content-Length")
+		} else if len(r.Body) == content_length {
+			r.State = Done
+			return len(data), nil
+		}
+		return len(data), nil
 	default:
-		return 0, fmt.Errorf("Request is not in initial or parsing headers state. Request should not be parsed")
+		return 0, fmt.Errorf("Request is in unknown state. Request should not be parsed")
 	}
 }
 
