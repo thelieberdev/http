@@ -30,6 +30,10 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	if idx == 0 { return 2, true, nil } // found end of headers, consume crlf
 
 	parts := bytes.SplitN(data[:idx], []byte(":"), 2)
+	if len(parts) != 2 {
+		return 0, false, fmt.Errorf("Invalid header: '%s'", string(data[:idx]))
+	}
+
 	key := strings.TrimLeft(strings.ToLower(string(parts[0])), " ")
 	if strings.TrimRight(key, " ") != key { 
 		return 0, false, fmt.Errorf("Invalid header key: '%s'", key)
