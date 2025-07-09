@@ -5,36 +5,59 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"io"
 
-	"github.com/lieberdev/http/internal/response"
-	"github.com/lieberdev/http/internal/request"
-	"github.com/lieberdev/http/internal/server"
+	"github.com/lieberdev/http/internal/http"
 )
 
 const port = ":42069"
 
 func main() {
-	handler := func(w io.Writer, r *request.Request) *server.HandlerError {
-		if r.RequestLine.RequestTarget == "/yourproblem" {
-			return &server.HandlerError{
-				StatusCode: response.StatusBadRequest,
-				Message: "Your problem is not my problem\n",
-			}
-		} else if r.RequestLine.RequestTarget == "/myproblem" {
-			return &server.HandlerError{
-				StatusCode: response.StatusInternalServerError,
-				Message: "Woopsie, my bad\n",
-			}
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.StatusLine.Target == "/yourproblem" {
+			w.WriteStatusLine(http.StatusBadRequest)
+			w.Headers.Set("Content-Type", "text/html")
+			w.WriteHeaders(nil)
+			w.WriteBody([]byte(`<html>
+				<head>
+				<title>400 Bad Request</title>
+				</head>
+				<body>
+				<h1>This is your problem!</h1>
+				<p>Your problem is not my problem.</p>
+				</body>
+				</html>`))
+			return
+		} else if r.StatusLine.Target == "/myproblem" {
+			w.WriteStatusLine(http.StatusInternalServerError)
+			w.Headers.Set("Content-Type", "text/html")
+			w.WriteHeaders(nil)
+			w.WriteBody([]byte(`<html>
+				<head>
+				<title>500 Internal Server Error</title>
+				</head>
+				<body>
+				<h1>This is my problem!</h1>
+				<p>Woopsie, my bad</p>
+				</body>
+				</html>`))
+			return
 		}
 
-		return &server.HandlerError{
-			StatusCode: response.StatusOK,
-			Message: "All good, frfr\n",
-		}
+		w.WriteStatusLine(http.StatusOK)
+		w.Headers.Set("Content-Type", "text/html")
+		w.WriteHeaders(nil)
+		w.WriteBody([]byte(`<html>
+			<head>
+			<title>200 OK</title>
+			</head>
+			<body>
+			<h1>Success!</h1>
+			<p>All good, frfr</p>
+			</body>
+			</html>`))
 	}
 
-	server, err := server.Serve(port, handler)
+	server, err := http.ListenAndServe(port, handler)
 	if err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)

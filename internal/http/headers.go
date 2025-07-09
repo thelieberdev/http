@@ -1,50 +1,59 @@
-package headers
+package http
 
 import (
-	"bytes"
 	"strings"
+	"bytes"
 	"fmt"
 )
 
 type Headers map[string]string
 
-func NewHeaders() Headers {
-	return map[string]string{}
-}
-
 func (h Headers) Get(key string) string {
+	// Header names are case-insensitive
 	return h[strings.ToLower(key)]
 }
 
-func (h Headers) Set(key string, value string) {
-	if current_value, ok := h[key]; ok {
-		h[key] = current_value + ", " + value
+// Overwrites value in header
+func (h *Headers) Set(key string, value string) {
+	if key == "" || value == "" { return }
+	name := strings.ToLower(key)
+	(*h)[name] = value
+}
+
+// Adds value to header
+func (h *Headers) Add(key string, value string) {
+	if key == "" || value == "" { return }
+
+	// RFC 9910 5.2
+	// There can be multiple header lines with the same key
+	name := strings.ToLower(key)
+	if existing_value, ok := (*h)[name]; ok {
+		(*h)[name] = existing_value + ", " + value
 	} else {
-		h[key] = value
+		(*h)[name] = value
 	}
 }
 
-func (h Headers) Parse(data []byte) (n int, done bool, err error) {
+func (h *Headers) parse(data []byte) (int, bool, error) {
 	idx  := bytes.Index(data, []byte("\r\n"))
 	if idx == -1 { return 0, false, nil }
 	if idx == 0 { return 2, true, nil } // found end of headers, consume crlf
 
-	parts := bytes.SplitN(data[:idx], []byte(":"), 2)
+	parts := strings.SplitN(string(data[:idx]), ":", 2)
 	if len(parts) != 2 {
 		return 0, false, fmt.Errorf("Invalid header: '%s'", string(data[:idx]))
 	}
 
-	key := strings.TrimLeft(strings.ToLower(string(parts[0])), " ")
+	key := strings.TrimLeft(parts[0], " ")
+	value := strings.TrimSpace(parts[1])
 	if strings.TrimRight(key, " ") != key { 
 		return 0, false, fmt.Errorf("Invalid header key: '%s'", key)
 	}
-	value := strings.TrimSpace(string(parts[1]))
-
 	if !isValidHeaderName(key) {
 		return 0, false, fmt.Errorf("Invalid character in header name: '%s'", key)
 	}
 
-	h.Set(key, value)
+	h.Add(key, value)
 	return idx + 2, false, nil
 }
 
