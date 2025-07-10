@@ -71,7 +71,9 @@ func (w *ResponseWriter) WriteBody(p []byte) (int, error) {
 	}
 
 	// Set default headers
-	w.Headers.Set("Content-Length", strconv.Itoa(len(p)))
+	if _, ok := w.Headers["transfer-encoding"]; !ok {
+		w.Headers.Set("Content-Length", strconv.Itoa(len(p)))
+	}
 	if _, ok := w.Headers["connection"]; !ok {
 		w.Headers.Set("Connection", "close")
 	}
@@ -95,4 +97,12 @@ func (w *ResponseWriter) WriteBody(p []byte) (int, error) {
 
 	w.state = done
 	return total_written, nil
+}
+
+// Chunk sizes should be the sizes in bytes of the data, and should be in hexadecimal format.
+
+func (w *ResponseWriter) WriteChunkedBody(p []byte) (int, error) {
+}
+
+func (w *ResponseWriter) WriteChunkedBodyDone() (int, error) {
 }
