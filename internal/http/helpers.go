@@ -27,6 +27,11 @@ func (cr *chunkReader) Read(p []byte) (n int, err error) {
 	return n, nil
 }
 
+// Fake Close
+func (cr *chunkReader) Close() error {
+	return nil
+}
+
 func isUpper(s string) bool {
     for _, r := range s {
         if !unicode.IsUpper(r) && unicode.IsLetter(r) {

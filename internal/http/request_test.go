@@ -1,6 +1,7 @@
 package http
 
 import (
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -142,7 +143,9 @@ func TestBodyParseFromReader(t *testing.T) {
 	r, err := RequestFromReader(reader)
 	require.NoError(t, err)
 	require.NotNil(t, r)
-	assert.Equal(t, "hello world!\n", string(r.Body))
+	content, err := io.ReadAll(r.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "hello world!\n", string(content))
 
 	// Test: Empty Body, 0 reported content length
 	reader = &chunkReader{

@@ -98,11 +98,3 @@ func (w *ResponseWriter) WriteBody(p []byte) (int, error) {
 	w.state = done
 	return total_written, nil
 }
-
-// Chunk sizes should be the sizes in bytes of the data, and should be in hexadecimal format.
-
-func (w *ResponseWriter) WriteChunkedBody(p []byte) (int, error) {
-}
-
-func (w *ResponseWriter) WriteChunkedBodyDone() (int, error) {
-}

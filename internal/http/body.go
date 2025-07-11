@@ -9,22 +9,20 @@ import (
 	"sync/atomic"
 )
 
+type chunkedBodyState int
+const (
+	ReadingChunkSize chunkedBodyState = iota
+	ReadingChunk
+)
+
 type chunkedBody struct {
 	rc io.ReadCloser
 	buf []byte
 	unconsumed_bytes int
 	next_chunk_size int64
+	state chunkedBodyState
 	eof bool
 	closed atomic.Bool
-}
-
-func newChunkedBody(rc io.ReadCloser) *chunkedBody {
-	return &chunkedBody{
-		rc: rc,
-		buf: make([]byte, buffer_size),
-		unconsumed_bytes: 0,
-		next_chunk_size: -1,
-	}
 }
 
 func (cb *chunkedBody) Read(p []byte) (int, error) {
@@ -70,10 +68,11 @@ func (cb *chunkedBody) parse(p *[]byte) (int, error) {
 	if idx == -1 { return 0, nil } // need more data
 
   // -1 is a sentinal value for unknown chunk size
-	if cb.next_chunk_size == -1 {
+	if cb.state == ReadingChunkSize {
 		size, err := strconv.ParseInt(string(cb.buf[:idx]), 16, 64)
 		if err != nil { return 0, err }
 		cb.next_chunk_size = size
+		cb.state = ReadingChunk
 		return idx + 2, nil
 	}
 	
@@ -87,6 +86,7 @@ func (cb *chunkedBody) parse(p *[]byte) (int, error) {
 
 	n := min(len(cb.buf[:idx]), len(*p))
 	copy(*p, cb.buf[:n])
+	cb.state = ReadingChunkSize
 	return n + 2, nil
 }
 
