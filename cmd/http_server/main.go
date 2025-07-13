@@ -13,7 +13,8 @@ const port = ":42069"
 
 func main() {
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		if r.StatusLine.Target == "/yourproblem" {
+		switch r.StatusLine.Target {
+		case "/yourproblem":
 			w.WriteStatusLine(http.StatusBadRequest)
 			w.Headers.Set("Content-Type", "text/html")
 			w.WriteHeaders(nil)
@@ -27,7 +28,7 @@ func main() {
 				</body>
 				</html>`))
 			return
-		} else if r.StatusLine.Target == "/myproblem" {
+		case "/myproblem":
 			w.WriteStatusLine(http.StatusInternalServerError)
 			w.Headers.Set("Content-Type", "text/html")
 			w.WriteHeaders(nil)
@@ -41,20 +42,20 @@ func main() {
 				</body>
 				</html>`))
 			return
+		default:
+			w.WriteStatusLine(http.StatusOK)
+			w.Headers.Set("Content-Type", "text/html")
+			w.WriteHeaders(nil)
+			w.WriteBody([]byte(`<html>
+				<head>
+				<title>200 OK</title>
+				</head>
+				<body>
+				<h1>Success!</h1>
+				<p>All good, frfr</p>
+				</body>
+				</html>`))
 		}
-
-		w.WriteStatusLine(http.StatusOK)
-		w.Headers.Set("Content-Type", "text/html")
-		w.WriteHeaders(nil)
-		w.WriteBody([]byte(`<html>
-			<head>
-			<title>200 OK</title>
-			</head>
-			<body>
-			<h1>Success!</h1>
-			<p>All good, frfr</p>
-			</body>
-			</html>`))
 	}
 
 	server, err := http.ListenAndServe(port, handler)

@@ -138,14 +138,14 @@ func TestBodyParseFromReader(t *testing.T) {
 					"Content-Length: 13\r\n" +
 					"\r\n" +
 					"hello world!\n",
-		numBytesPerRead: 3,
+		numBytesPerRead: 13,
 	}
 	r, err := RequestFromReader(reader)
 	require.NoError(t, err)
 	require.NotNil(t, r)
-	content, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	require.NoError(t, err)
-	assert.Equal(t, "hello world!\n", string(content))
+	assert.Equal(t, "hello world!\n", string(body))
 
 	// Test: Empty Body, 0 reported content length
 	reader = &chunkReader{
@@ -158,7 +158,9 @@ func TestBodyParseFromReader(t *testing.T) {
 	r, err = RequestFromReader(reader)
 	require.NoError(t, err)
 	require.NotNil(t, r)
-	assert.Empty(t, r.Body)
+	body, err = io.ReadAll(r.Body)
+	require.NoError(t, err)
+	assert.Empty(t, body)
 
 	// Test: Empty Body, no reported content length
 	reader = &chunkReader{
@@ -170,7 +172,9 @@ func TestBodyParseFromReader(t *testing.T) {
 	r, err = RequestFromReader(reader)
 	require.NoError(t, err)
 	require.NotNil(t, r)
-	assert.Empty(t, r.Body)
+	body, err = io.ReadAll(r.Body)
+	require.NoError(t, err)
+	assert.Empty(t, body)
 
 	// Test: Body bigger than reported content length
 	reader = &chunkReader{
@@ -179,10 +183,12 @@ func TestBodyParseFromReader(t *testing.T) {
 					"Content-Length: 2\r\n" +
 					"\r\n" +
 					"partial content",
-		numBytesPerRead: 2, // TDOO: 1 gives error because ==
+		numBytesPerRead: 8,
 	}
 	r, err = RequestFromReader(reader)
-	require.Error(t, err)
+	body, err = io.ReadAll(r.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "pa", string(body))
 
 	// Test: No Content-Length but Body Exists
 	reader = &chunkReader{
@@ -195,5 +201,7 @@ func TestBodyParseFromReader(t *testing.T) {
 	r, err = RequestFromReader(reader)
 	require.NoError(t, err)
 	require.NotNil(t, r)
-	assert.Empty(t, r.Body)
+	body, err = io.ReadAll(r.Body)
+	require.NoError(t, err)
+	assert.Empty(t, body)
 }

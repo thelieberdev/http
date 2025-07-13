@@ -18,7 +18,7 @@ const (
 type Request struct {
 	StatusLine  StatusLine
 	Headers     Headers
-	Body        io.Reader
+	Body        io.ReadCloser
 	state       State
 }
 
@@ -28,7 +28,7 @@ func RequestFromReader(reader io.ReadCloser) (*Request, error) {
 	r := &Request{
 		StatusLine: StatusLine{},
 		Headers: Headers{},
-		Body: io.NopCloser(nil),
+		Body: reader,
 		state: ParsingStatusLine,
 	}
 
@@ -66,8 +66,17 @@ func RequestFromReader(reader io.ReadCloser) (*Request, error) {
 	if r.Headers.Get("transfer-encoding") == "chunked" {
 	} else {
 		content_length, err := strconv.Atoi(r.Headers.Get("content-length"))
-		if err != nil { return r, err }
-		r.Body = io.LimitReader(r.Body, int64(content_length))
+		if err != nil { 
+			// No body
+			content_length = 0
+		}
+		r.Body = struct { 
+			io.Reader
+			io.Closer
+		}{
+			Reader: io.LimitReader(r.Body, int64(content_length)),
+			Closer: r.Body,
+		}
 	}
 
 	return r, nil
