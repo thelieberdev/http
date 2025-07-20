@@ -70,12 +70,11 @@ func RequestFromReader(reader io.ReadCloser) (*Request, error) {
 			// No body
 			content_length = 0
 		}
-		r.Body = struct { 
-			io.Reader
-			io.Closer
-		}{
-			Reader: io.LimitReader(r.Body, int64(content_length)),
-			Closer: r.Body,
+		r.Body = &body{
+			rc: r.Body,
+			buf: buf,
+			content_length: content_length,
+			unconsumed_bytes: len(buf[:unconsumed_bytes]),
 		}
 	}
 

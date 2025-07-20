@@ -1,96 +1,58 @@
 package http
 
-// import (
-// 	"bytes"
-// 	"errors"
-// 	"fmt"
-// 	"io"
-// 	"strconv"
-// 	"sync/atomic"
-// )
+import (
+	"errors"
+	"io"
+	"sync/atomic"
+)
 
-// type chunkedBodyState int
-// const (
-// 	ReadingChunkSize chunkedBodyState = iota
-// 	ReadingChunk
-// )
-//
-// type chunkedBody struct {
-// 	rc io.ReadCloser
-// 	buf []byte
-// 	unconsumed_bytes int
-// 	next_chunk_size int64
-// 	state chunkedBodyState
-// 	eof bool
-// 	closed atomic.Bool
-// }
-//
-// func (cb *chunkedBody) Read(p []byte) (int, error) {
-// 	if cb.closed.Load() { return 0, io.ErrClosedPipe }
-//
-// 	for cb.unconsumed_bytes < len(p) && !cb.eof {
-// 		if len(cb.buf) == cb.unconsumed_bytes {
-// 			// buffer is full, double size of buffer
-// 			temp := make([]byte, len(cb.buf)*2)
-// 			copy(temp, cb.buf)
-// 			cb.buf = temp
-// 		}
-//
-// 		n, err := cb.rc.Read(cb.buf[cb.unconsumed_bytes:])
-// 		if errors.Is(err, io.EOF) { 
-// 			cb.eof = true
-// 			break
-// 		} else if err != nil { 
-// 			return 0, err
-// 		}
-// 		cb.unconsumed_bytes += n
-//
-// 		consumed_bytes, err := cb.parse(&p)
-// 		if err != nil { return 0, err }
-// 		if consumed_bytes != 0 {
-// 			copy(cb.buf, cb.buf[consumed_bytes:])
-// 			cb.unconsumed_bytes -= consumed_bytes
-// 		}
-//
-// 		return consumed_bytes, nil
-// 	}
-//
-// 	if cb.unconsumed_bytes == 0 { return 0, io.EOF }
-// 	n := min(len(cb.buf[:cb.unconsumed_bytes]), len(p))
-// 	copy(p, cb.buf[:n])
-// 	copy(cb.buf, cb.buf[n:])
-// 	cb.unconsumed_bytes -= n
-// 	return n, nil
-// }
-//
-// func (cb *chunkedBody) parse(p *[]byte) (int, error) {
-// 	idx := bytes.Index(cb.buf, []byte("\r\n"))
-// 	if idx == -1 { return 0, nil } // need more data
-//
-//   // -1 is a sentinal value for unknown chunk size
-// 	if cb.state == ReadingChunkSize {
-// 		size, err := strconv.ParseInt(string(cb.buf[:idx]), 16, 64)
-// 		if err != nil { return 0, err }
-// 		cb.next_chunk_size = size
-// 		cb.state = ReadingChunk
-// 		return idx + 2, nil
-// 	}
-//
-// 	if int64(len(cb.buf[:cb.unconsumed_bytes])) != cb.next_chunk_size {
-// 		return 0, fmt.Errorf(
-// 			"Sent chunk size (%d) is different than chunk (%d)", 
-// 			cb.next_chunk_size,
-// 			len(cb.buf[:cb.unconsumed_bytes]),
-// 			)
-// 	}
-//
-// 	n := min(len(cb.buf[:idx]), len(*p))
-// 	copy(*p, cb.buf[:n])
-// 	cb.state = ReadingChunkSize
-// 	return n + 2, nil
-// }
-//
-// func (cb *chunkedBody) Close() error {
-// 	cb.closed.Store(true)
-// 	return cb.rc.Close()
-// }
+type body struct {
+	rc io.ReadCloser
+	buf []byte
+	unconsumed_bytes int
+	content_length int
+	closed atomic.Bool
+	eof bool
+	total_consumed_bytes int
+}
+
+func (b *body) Read(p []byte) (int, error) {
+	if b.closed.Load() { return 0, io.ErrClosedPipe }
+	if b.eof { return 0, io.EOF }
+
+	for b.unconsumed_bytes < len(p) {
+		if len(b.buf) == b.unconsumed_bytes {
+			// buffer is full, double size of buffer
+			temp := make([]byte, len(b.buf)*2)
+			copy(temp, b.buf)
+			b.buf = temp
+		}
+
+		n, err := b.rc.Read(b.buf[b.unconsumed_bytes:])
+		if errors.Is(err, io.EOF) {
+			b.eof = true
+			break
+		} else if err != nil { 
+			return 0, err
+		}
+		b.unconsumed_bytes += n
+	}
+
+	// uncosmumed_bytes can still be smaller if EOF was reached
+	consumed_bytes := min(b.unconsumed_bytes, len(p))
+	// Also do not consume more bytes than the content length
+	remaining_bytes := b.content_length - b.total_consumed_bytes
+	if remaining_bytes <= consumed_bytes {
+		consumed_bytes = remaining_bytes
+		b.eof = true
+	}
+	copy(p, b.buf[:consumed_bytes])
+	b.unconsumed_bytes -= consumed_bytes
+	b.total_consumed_bytes += consumed_bytes
+	return consumed_bytes, nil
+}
+
+func (b *body) Close() error {
+	b.closed.Store(true)
+	return b.rc.Close()
+}
