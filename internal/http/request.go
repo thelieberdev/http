@@ -64,6 +64,12 @@ func RequestFromReader(reader io.ReadCloser) (*Request, error) {
 	}
 
 	if r.Headers.Get("transfer-encoding") == "chunked" {
+		r.Body = &body{
+			rc: r.Body,
+			buf: buf,
+			unconsumed_bytes: len(buf[:unconsumed_bytes]),
+			is_chunked: true,
+		}
 	} else {
 		content_length, err := strconv.Atoi(r.Headers.Get("content-length"))
 		if err != nil { 
