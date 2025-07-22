@@ -11,8 +11,8 @@ import (
 
 type chunkedBodyState int
 const (
-	ReadingChunkSize chunkedBodyState = iota
-	ReadingChunk
+	readChunkSize chunkedBodyState = iota
+	readChunk
 )
 
 type body struct {
@@ -30,17 +30,13 @@ type body struct {
 	cb_state chunkedBodyState
 }
 
-func (b *body) Read(p []byte) (int, error) {
+func (b *body) Read(data []byte) (int, error) {
 	if b.closed.Load() { return 0, io.ErrClosedPipe }
 	if b.eof { return 0, io.EOF }
 
-	for b.unconsumed_bytes < len(p) {
-		if len(b.buf) == b.unconsumed_bytes {
-			// buffer is full, double size of buffer
-			temp := make([]byte, len(b.buf)*2)
-			copy(temp, b.buf)
-			b.buf = temp
-		}
+	for {
+		// Check if buffer is full
+		if len(b.buf) == b.unconsumed_bytes { b.buf = grow(b.buf) }
 
 		n, err := b.rc.Read(b.buf[b.unconsumed_bytes:])
 		if errors.Is(err, io.EOF) {
@@ -50,57 +46,73 @@ func (b *body) Read(p []byte) (int, error) {
 			return 0, err
 		}
 		b.unconsumed_bytes += n
-	}
 
-	if b.is_chunked {
-		consumed_bytes, err := b.parseChunkedBody(p)
+		consumed_bytes := 0
+		err = error(nil)
+		if b.is_chunked {
+			consumed_bytes, err = b.parseChunked(data)
+		} else {
+			consumed_bytes, err = b.parseFixed(data)
+		}
 		if err != nil { return 0, err }
-		if consumed_bytes != 0 {
-			copy(p, b.buf[:consumed_bytes])
-			copy(b.buf, b.buf[consumed_bytes:])
-			b.unconsumed_bytes -= consumed_bytes
+		if consumed_bytes != 0 { 
+			return consumed_bytes, nil
 		}
-		return consumed_bytes, nil
-	} else {
-		// uncosmumed_bytes can still be smaller if EOF was reached
-		consumed_bytes := min(b.unconsumed_bytes, len(p))
-		// Also do not consume more bytes than the content length
-		remaining_bytes := b.content_length - b.total_consumed_bytes
-		if remaining_bytes <= consumed_bytes {
-			consumed_bytes = remaining_bytes
-			b.eof = true
-		}
-		copy(p, b.buf[:consumed_bytes])
-		copy(b.buf, b.buf[consumed_bytes:])
-		b.unconsumed_bytes -= consumed_bytes
-		b.total_consumed_bytes += consumed_bytes
-		return consumed_bytes, nil
 	}
+	return 0, nil
 }
 
-func (b *body) parseChunkedBody(p []byte) (int, error) {
-	idx := bytes.Index(b.buf, []byte("\r\n"))
-	if idx == -1 { return 0, nil } // need more data
+func (b *body) parseFixed(data []byte) (int, error) {
+	// uncosmumed_bytes can still be smaller if EOF was reached
+	consumed_bytes := min(b.unconsumed_bytes, len(data))
+	// Also do not consume more bytes than the content length
+	remaining_bytes := b.content_length - b.total_consumed_bytes
+	if remaining_bytes <= consumed_bytes {
+		consumed_bytes = remaining_bytes
+		b.eof = true
+	}
+	copy(data, b.buf[:consumed_bytes])
+	copy(b.buf, b.buf[consumed_bytes:])
+	b.unconsumed_bytes -= consumed_bytes
+	b.total_consumed_bytes += consumed_bytes
+	return consumed_bytes, nil
+}
+
+func (b *body) parseChunked(data []byte) (int, error) {
+	idx := bytes.Index(b.buf[:b.unconsumed_bytes], []byte("\r\n"))
+	if idx == -1 { return 0, nil }
 
 	switch b.cb_state {
-	case ReadingChunkSize:
+	case readChunkSize:
 		size, err := strconv.ParseInt(string(b.buf[:idx]), 16, 64)
 		if err != nil { return 0, err }
 		b.chunk_size = int(size)
-		b.cb_state = ReadingChunk
-		return idx + 2, nil
-	case ReadingChunk:
+		b.cb_state = readChunk
+		copy(b.buf, b.buf[idx+2:])
+		b.unconsumed_bytes -= idx+2
+		return 0, nil
+	case readChunk:
 		remaining_bytes := b.chunk_size - b.consumed_chunk_bytes
-		if len(b.buf[:idx]) != remaining_bytes {
+		if remaining_bytes != idx {
 			return 0, fmt.Errorf("Sent chunk size is different than chunk len")
 		}
+
 		// Read only part of chunk
-		if len(p) < remaining_bytes {
-			b.consumed_chunk_bytes += len(p)
-			return len(p), nil
+		if len(data) < remaining_bytes {
+			copy(data, b.buf[:len(data)])
+			copy(b.buf, b.buf[len(data):])
+			b.unconsumed_bytes -= len(data)
+			b.consumed_chunk_bytes += len(data)
+			return len(data), nil
+		} else {
+			copy(data, b.buf[:remaining_bytes])
+			copy(b.buf, b.buf[remaining_bytes+2:])
+			b.unconsumed_bytes -= remaining_bytes + 2
+			// Finished consuming chunk
+			b.consumed_chunk_bytes = 0
+			b.cb_state = readChunkSize
+			return remaining_bytes, nil
 		}
-		b.cb_state = ReadingChunkSize
-		return remaining_bytes + 2, nil
 	default:
 		return 0, fmt.Errorf("Unknown chunked body state: %d", b.cb_state)
 	}

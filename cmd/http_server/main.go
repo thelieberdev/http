@@ -12,6 +12,12 @@ import (
 const port = ":42069"
 
 func main() {
+	video, err := os.ReadFile("assets/vim.mp4")
+	if err != nil {
+		slog.Error(err.Error())
+		os.Exit(1)
+	}
+
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		switch r.StatusLine.Target {
 		case "/yourproblem":
@@ -41,6 +47,13 @@ func main() {
 				<p>Woopsie, my bad</p>
 				</body>
 				</html>`))
+			return
+		case "/video":
+			w.WriteStatusLine(http.StatusOK)
+			w.WriteHeaders(http.Headers{
+				"Content-Type":  "video/mp4",
+			})
+			w.WriteBody(video)
 			return
 		default:
 			w.WriteStatusLine(http.StatusOK)

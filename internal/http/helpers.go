@@ -40,3 +40,17 @@ func isUpper(s string) bool {
     }
     return true
 }
+
+func grow(buf []byte) []byte {
+	temp := make([]byte, len(buf)*2)
+	copy(temp, buf)
+	return temp
+}
+
+func getKeys[T comparable, V any](m map[T]V) []T {
+    var keys []T
+    for key := range m {
+        keys = append(keys, key)
+    }
+    return keys
+}

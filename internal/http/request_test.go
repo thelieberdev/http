@@ -205,3 +205,28 @@ func TestBodyParseFromReader(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, body)
 }
+
+func TestChunkedBodyParseFromReader(t *testing.T) {
+	// Test: Standard Chunked Body
+	t.Run("Standard Chunked Body", func(t *testing.T) {
+		reader := &chunkReader{
+			data: "POST /submit HTTP/1.1\r\n" +
+				"Host: localhost:42069\r\n" +
+				"Transfer-Encoding: chunked\r\n" +
+				"\r\n" +
+				"d\r\n" +
+				"hello world!\n\r\n" +
+				"5\r\n" +
+				"-more\r\n" +
+				"0\r\n" +
+				"\r\n",
+			numBytesPerRead: 2,
+		}
+		r, err := RequestFromReader(reader)
+		require.NoError(t, err)
+		require.NotNil(t, r)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		assert.Equal(t, "hello world!\n-more", string(body))
+	})
+}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 )
 
 type ResponseStatusCode int
@@ -23,6 +24,7 @@ const (
 
 type ResponseWriter struct {
 	Headers Headers
+	Trailers Headers
 	writer io.Writer
 	state responseWriterState
 }
@@ -62,7 +64,7 @@ func (w *ResponseWriter) WriteHeaders(headers Headers) error {
 	return nil
 }
 
-func (w *ResponseWriter) WriteBody(p []byte) (int, error) {
+func (w *ResponseWriter) WriteBody(data []byte) (int, error) {
 	if w.state != writingBody {
 		return 0, fmt.Errorf("Invalid state for writing body: %d", w.state)
 	}
@@ -72,7 +74,7 @@ func (w *ResponseWriter) WriteBody(p []byte) (int, error) {
 
 	// Set default headers
 	if _, ok := w.Headers["transfer-encoding"]; !ok {
-		w.Headers.Set("Content-Length", strconv.Itoa(len(p)))
+		w.Headers.Set("Content-Length", strconv.Itoa(len(data)))
 	}
 	if _, ok := w.Headers["connection"]; !ok {
 		w.Headers.Set("Connection", "close")
@@ -91,10 +93,31 @@ func (w *ResponseWriter) WriteBody(p []byte) (int, error) {
 	total_written += n
 	
 	// Write body
-	n, err = w.writer.Write(p)
+	n, err = w.writer.Write(data)
+	if err != nil { return 0, err }
+	total_written += n
+
+	// Write trailers
+	for name, value := range w.Headers {
+		n, err := w.writer.Write([]byte(name + ": " + value + "\r\n"))
+		if err != nil { return 0, err }
+		total_written += n
+	}
+	n, err = w.writer.Write([]byte("\r\n"))
 	if err != nil { return 0, err }
 	total_written += n
 
 	w.state = done
 	return total_written, nil
+}
+
+func (w *ResponseWriter) WriteTrailers(headers Headers) error {
+	if w.state != writingBody {
+		return fmt.Errorf("Invalid state for writing trailers: %d", w.state)
+	}
+
+	w.Headers.Add("Trailer", strings.Join(getKeys(headers), " "))
+	w.Trailers = headers
+
+	return nil
 }
