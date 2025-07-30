@@ -12,7 +12,8 @@ import (
 const port = ":42069"
 
 func main() {
-	video, err := os.ReadFile("assets/vim.mp4")
+	// not efficient. just for demo purposes
+	image, err := os.ReadFile("assets/moved.jpg")
 	if err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
@@ -48,12 +49,12 @@ func main() {
 				</body>
 				</html>`))
 			return
-		case "/video":
+		case "/cat":
 			w.WriteStatusLine(http.StatusOK)
 			w.WriteHeaders(http.Headers{
-				"Content-Type":  "video/mp4",
+				"Content-Type":  "image/jpeg",
 			})
-			w.WriteBody(video)
+			w.WriteBody(image)
 			return
 		default:
 			w.WriteStatusLine(http.StatusOK)

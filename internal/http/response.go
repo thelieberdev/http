@@ -19,6 +19,7 @@ const (
 	writingStatusLine responseWriterState = iota
 	writingHeaders
 	writingBody
+	writingChunkedBody
 	done
 )
 
@@ -53,7 +54,7 @@ func (w *ResponseWriter) WriteStatusLine(sc ResponseStatusCode) error {
 }
 
 // Does not write headers to data. Good for adding headers after writing body
-// that are necessary for the response. Such as Content-Length
+// that are necessary for the response. Such as Content-Length and Trailers
 func (w *ResponseWriter) WriteHeaders(headers Headers) error {
 	if w.state != writingHeaders {
 		return fmt.Errorf("Invalid state for writing headers: %d", w.state)
@@ -61,6 +62,17 @@ func (w *ResponseWriter) WriteHeaders(headers Headers) error {
 
 	for name, value := range headers { w.Headers.Add(name, value) }
 	w.state = writingBody
+	return nil
+}
+
+func (w *ResponseWriter) WriteTrailers(headers Headers) error {
+	if w.state != writingBody {
+		return fmt.Errorf("Invalid state for writing trailers: %d", w.state)
+	}
+
+	w.Headers.Add("Trailer", strings.Join(getKeys(headers), " "))
+	w.Trailers = headers
+
 	return nil
 }
 
@@ -111,13 +123,62 @@ func (w *ResponseWriter) WriteBody(data []byte) (int, error) {
 	return total_written, nil
 }
 
-func (w *ResponseWriter) WriteTrailers(headers Headers) error {
-	if w.state != writingBody {
-		return fmt.Errorf("Invalid state for writing trailers: %d", w.state)
+func (w *ResponseWriter) WriteChunkedBody(data []byte) (int, error) {
+	if w.state != writingBody && w.state != writingChunkedBody {
+		return 0, fmt.Errorf("Invalid state for writing body: %d", w.state)
+	}
+	if enc := w.Headers.Get("transfer-encoding"); enc != "chunked" {
+		return 0, fmt.Errorf("Transfer-Encoding must be set to chunked to write chunked body")
 	}
 
-	w.Headers.Add("Trailer", strings.Join(getKeys(headers), " "))
-	w.Trailers = headers
+	total_written := 0
 
-	return nil
+	// Write headers once
+	if w.state == writingBody {
+		for name, value := range w.Headers {
+			n, err := w.writer.Write([]byte(name + ": " + value + "\r\n"))
+			if err != nil { return 0, err }
+			total_written += n
+		}
+		n, err := w.writer.Write([]byte("\r\n"))
+		if err != nil { return 0, err }
+		total_written += n
+	}
+
+	// Write data len in hex
+	hex := strconv.FormatInt(int64(len(data)), 16)
+	w.writer.Write([]byte(hex + "\r\n"))
+	w.writer.Write(data)
+	w.writer.Write([]byte("\r\n"))
+
+	w.state = writingChunkedBody
+
+	return total_written, nil
+}
+
+func (w *ResponseWriter) WriteChunkedBodyDone() (int, error) {
+	if w.state != writingChunkedBody {
+		return 0, fmt.Errorf("Invalid state for writing chunked body done: %d", w.state)
+	}
+
+	total_written := 0
+
+	// Write chunked body end
+	n, err := w.writer.Write([]byte("0\r\n"))
+	if err != nil { return 0, err }
+	total_written += n
+
+	// Write trailers
+	for name, value := range w.Headers {
+		n, err := w.writer.Write([]byte(name + ": " + value + "\r\n"))
+		if err != nil { return 0, err }
+		total_written += n
+	}
+	n, err = w.writer.Write([]byte("\r\n"))
+	if err != nil { return 0, err }
+	total_written += n
+
+	w.state = done
+
+	return total_written, nil
 }
